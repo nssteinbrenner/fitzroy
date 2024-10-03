@@ -1,0 +1,90 @@
+[main]
+lat = ""
+lon = ""
+units = "F"
+font = "undefined medium"
+timezone = "America/New_York"
+log_level = "INFO"
+
+[api]
+enabled = ["openweathermap", "pirateweather"]
+
+[api.pirateweather]
+api_key = ""
+url = "https://api.pirateweather.net/forecast/{api_key}/{lat}%2C{lon}"
+
+[api.openweathermap]
+api_key = ""
+url = "https://api.openweathermap.org/data/3.0/onecall?lat={lat}&lon={lon}&appid={api_key}&units=imperial"
+
+[theme]
+bg = "#1d2021"
+fg = "#fbf1c7"
+fg_alt = "#ebdbb2"
+white = "ffffff"
+black = "000000"
+red = "#fb4934"
+green = "#b8bb26"
+yellow = "#fabd2f"
+blue = "#83a598"
+purple = "#d3869b"
+aqua = "#8ec07c"
+gray = "#928374"
+orange = "#fe8019"
+red_alt = "#cc2412"
+green_alt = "#98971a"
+yellow_alt = "#d79921"
+blue_alt = "#458588"
+purple_alt = "#b16286"
+aqua_alt = "#689d6a"
+gray_alt = "#a89984"
+orange_alt = "#d65d0e"
+
+[weather]
+events = ["hail", "rain", "thunderstorm", "wind", "sleet", "snow", "fog"]
+
+[icons]
+# Icons are in the format of:
+# $weather_modifier_time
+# e.g $windy_cloudy_day
+# Weather can be specified multiple times in alphabetical order.
+# Modifiers can be specified multiple times in alphabetical order.
+# Time must be either day or night.
+day = ""
+night = ""
+partly_cloudy_day = "󰖕"
+partly_cloudy_night = "󰼱"
+cloudy_day = ""
+cloudy_night = ""
+hail_day = ""
+hail_night = ""
+hail = ""
+wind_cloudy_day = ""
+wind_cloudy_night = ""
+wind_cloudy = ""
+rain_day = ""
+rain_night = ""
+rain_wind = ""
+rain = ""
+thunderstorm_day = ""
+thunderstorm_night = ""
+thunderstorm = ""
+sleet_day = ""
+sleet_storm_day = ""
+sleet_night = ""
+sleet_storm_night = ""
+sleet = ""
+snow_day = ""
+snow_night = ""
+snow_thunderstorm_day = ""
+snow_thunderstorm_night = ""
+snow = ""
+fog_day = ""
+fog_night = ""
+fog = ""
+smoke = ""
+haze = ""
+dust = ""
+sand = ""
+tornado = ""
+wind = "󰖝"

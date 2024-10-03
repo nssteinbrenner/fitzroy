@@ -1,0 +1,704 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import logging
+import sys
+import time
+import tomllib
+import urllib.request
+
+from datetime import datetime
+from pathlib import Path
+from urllib.error import URLError, HTTPError
+from zoneinfo import ZoneInfo
+
+
+class Weather:
+    def __init__(
+        self,
+        config,
+        cloud_cover,
+        icon_string,
+        id,
+        summary,
+        sunrise,
+        sunset,
+        time,
+        temperature,
+        temperature_high,
+        temperature_low,
+        precipitation_chance,
+        wind_speed,
+    ):
+        self.config = config
+        self.cloud_cover = (
+            cloud_cover if isinstance(cloud_cover, int) else round(cloud_cover * 100)
+        )
+        self.id = id
+        self.icon_string = icon_string
+        self.summary = summary
+        self.sunrise = sunrise
+        self.sunset = sunset
+        self.time = time
+        self.temperature = round(temperature) if temperature is not None else None
+        self.temperature_high = (
+            round(temperature_high) if temperature_high is not None else None
+        )
+        self.temperature_low = (
+            round(temperature_low) if temperature_low is not None else None
+        )
+        self.precipitation_chance = (
+            round(precipitation_chance) if precipitation_chance is not None else None
+        )
+        if wind_speed is not None:
+            self.wind_speed = (
+                wind_speed if isinstance(wind_speed, int) else round(wind_speed * 100)
+            )
+        else:
+            self.wind_speed = None
+
+        self._logger = logging.getLogger(self.__class__.__name__)
+
+        self.set_icon_key()
+
+    def merge(self, weather):
+        if self.cloud_cover is None:
+            self.cloud_cover = weather.cloud_cover
+        if self.icon_string is None:
+            self.icon_string = weather.icon_string
+        if self.id is None:
+            self.id = weather.id
+        if self.summary is None:
+            self.summary = weather.summary
+        if self.sunrise is None:
+            self.sunrise = weather.sunrise
+        if self.sunset is None:
+            self.sunset = weather.sunset
+        if self.time is None:
+            self.time = weather.time
+        if self.temperature is None:
+            self.temperature = weather.temperature
+        if self.temperature_high is None:
+            self.temperature_high = weather.temperature_high
+        if self.temperature_low is None:
+            self.temperature_low = weather.temperature_low
+        if self.precipitation_chance is None:
+            self.precipitation_chance = weather.precipitation_chance
+        if self.wind_speed is None:
+            self.wind_speed = weather.wind_speed
+
+    def check_time(self):
+        current_time = time.time()
+        timezone = ZoneInfo(self.config["main"].get("timezone", "UTC"))
+        now = datetime.now(tz=timezone)
+        if self.sunrise:
+            sunrise_datetime = datetime.fromtimestamp(self.sunrise, tz=timezone)
+            sunset_datetime = datetime.fromtimestamp(self.sunset, tz=timezone)
+            if now <= sunrise_datetime or now >= sunset_datetime:
+                return "night"
+        return "day"
+
+    def set_icon_key(self, check_time=False):
+        icon_key = ""
+        if self.id:
+            # https://openweathermap.org/weather-conditions
+            self._logger.debug(f"Weather data has icon ID {self.id}")
+            first_digit = self.id // 100
+            if first_digit == 2:
+                icon_key = "thunderstorm"
+            elif first_digit == 3:
+                icon_key = "rain"
+                if check_time:
+                    icon_key += "_" + self.check_time()
+            elif first_digit == 5:
+                icon_key = "rain"
+                if self.wind_speed:
+                    if self.wind_speed > 10:
+                        icon_key += "_wind"
+            elif first_digit == 6:
+                icon_key = "snow"
+                if self.id > 610 and self.id < 620:
+                    icon_key = "sleet"
+            elif first_digit == 7:
+                if self.id == 711:
+                    icon_key = "smoke"
+                elif self.id == 721:
+                    icon_key = "haze"
+                elif self.id == 731 or 761:
+                    icon_key = "dust"
+                elif self.id == 741:
+                    icon_key = "fog"
+                    if check_time:
+                        icon_key += "_" + self.check_time()
+                elif self.id == 781:
+                    icon_key = "tornado"
+            elif first_digit == 8:
+                icon_key = "day"
+                if check_time:
+                    icon_key = self.check_time()
+                if self.id == 802:
+                    icon_key = "partly_cloudy" + "_" + icon_key
+                elif self.id == 803 or self.id == 804:
+                    icon_key = "cloudy" + "_" + icon_key
+            self._logger.debug(f"Icon ID {self.id} decoded into icon_key {icon_key}")
+
+        elif self.icon_string:
+            icon = self.icon_string.replace("-", "_")
+
+            weather_events = self.config["weather"]["events"]
+
+            weather_in_icon = []
+            for event in weather_events:
+                if event in icon:
+                    self._logger.debug(f"Found {event} in icon.")
+                    weather_in_icon.append(event)
+
+            modifiers = []
+            if self.cloud_cover:
+                if self.cloud_cover >= 75:
+                    self._logger.debug(f"Adding cloudy to modifiers.")
+                    modifiersrain.append("cloudy")
+                elif self.cloud_cover >= 37:
+                    self._logger.debug(f"Adding parly_cloudy to modifiers.")
+                    modifiers.append("partly_cloudy")
+
+            weather_in_icon.sort()
+            modifiers.sort()
+            for event in weather_in_icon:
+                if icon_key:
+                    self._logger.debug(f"Appending {event} to icon_key {icon_key}.")
+                    icon_key += "_" + event
+                else:
+                    self._logger.debug(f"Setting icon_key to {event}")
+                    icon_key = event
+
+            for modifier in modifiers:
+                if icon_key:
+                    self._logger.debug(f"Appending {modifier} to icon_key {icon_key}.")
+                    icon_key += "_" + modifier
+                else:
+                    self._logger.debug(f"Setting icon_key to {modifier}")
+                    icon_key = modifier
+
+            time_string = "day"
+            if check_time:
+                time_string = self.check_time()
+            if icon_key:
+                self._logger.debug(f"Appending {time_string} to icon_key {icon_key}.")
+                icon_key += "_" + time_string
+            else:
+                self._logger.debug(f"Setting icon_key to {time_string}.")
+                icon_key += time_string
+
+            result = self.config["icons"].get(icon_key, None)
+            if result:
+                self._logger.debug(f"Found icon for {icon_key}.")
+                self.icon_key = icon_key
+            else:
+                self._logger.debug(f"Could not find icon for {icon_key}.")
+                for modifier in modifiers:
+                    if result:
+                        break
+                    self._logger.debug(
+                        f"Trimming {modifier} from icon_key. Before: {icon_key}"
+                    )
+                    icon_key.replace(modifier, "")
+                    icon_key.replace("__", "")
+                    self._logger.debug(f"Trimmed icon_key: {icon_key}")
+
+                    result = self.config["icons"].get(icon_key, None)
+                for event in weather_events:
+                    if result:
+                        break
+                    self._logger.debug(
+                        f"Trimming {event} from icon_key. Before: {icon_key}"
+                    )
+                    icon_key.replace(event, "")
+                    icon_key.replace("__", "")
+                    self._logger.debug(f"Trimmed icon_key: {icon_key}")
+
+        if self.config["icons"].get(icon_key, None) is None or icon_key == "":
+            self._logger.debug(
+                f"Failed to get icon for {icon_key}, defaulting to day or night."
+            )
+            now = datetime.now(tz=ZoneInfo(self.config["main"].get("timezone", "UTC")))
+            if now.hour >= 19 or now.hour <= 5:
+                icon_key = "night"
+            else:
+                icon_key = "day"
+
+        if icon_key in ["cloudy", "cloudy_day", "cloudy_night"]:
+            if self.wind_speed:
+                if self.wind_speed > 10:
+                    icon_key = "wind_" + icon_key
+
+        self._logger.debug(f"Setting icon_key to {icon_key}")
+        self.icon_key = icon_key
+
+
+class WeatherReport:
+    def __init__(self, config, current, hourly, daily):
+        self.config = config
+        self.current = current
+        self.hourly = hourly
+        self.daily = daily
+
+        self._logger = logging.getLogger(self.__class__.__name__)
+
+        self.current.merge(daily[0])
+        self.daily = self.daily[1:]
+        self.current.set_icon_key(check_time=True)
+
+        self.report = {}
+
+    def build_report(self):
+        return json.dumps(
+            {
+                "text": f'{self._format_icon(self.current.icon_key, width="")}'
+                + f'{self._format_temperature(self.current.temperature, color="fg")}'
+                + f'{self.config["main"]["units"]}',
+                "class": "ligma",
+                "alt": "",
+                "tooltip": (
+                    self._format_icon(self.current.icon_key, size="xx-large")
+                    + self._wrap_span(
+                        f"{self.current.summary.lower()}", "xx-large", "fg_alt"
+                    )
+                    + "\n\n"
+                    + self._format_hourly_report()
+                    + self._format_daily_report()
+                ),
+            }
+        )
+
+    def _build_daily_forecasts(self):
+        forecasts = []
+        max_temperature = self.daily[0].temperature_high
+        min_temperature = self.daily[0].temperature_low
+
+        for weather in self.daily[:8]:
+            formatted_time_string = self._parse_weather_time(weather.time).strftime(
+                "%a %b %d"
+            )
+
+            forecasts.append(
+                {
+                    "day_string": formatted_time_string,
+                    "icon": self._format_icon(weather.icon_key, width="^2"),
+                    "precipitation": weather.precipitation_chance,
+                    "temperature_low": weather.temperature_low,
+                    "temperature_high": weather.temperature_high,
+                }
+            )
+
+            if weather.temperature_high > max_temperature:
+                max_temperature = weather.temperature_high
+
+            if weather.temperature_low < min_temperature:
+                min_temperature = weather.temperature_low
+
+        for forecast in forecasts:
+            forecast["delta_chart"] = self._build_daily_delta_chart(
+                min_temperature, max_temperature, forecast
+            )
+
+        return forecasts
+
+    def _build_daily_delta_chart(self, min_temperature, max_temperature, forecast):
+        chart = ""
+        delta = max_temperature - min_temperature
+        steps = 20
+        increment = delta / steps
+        start = int((forecast["temperature_low"] - min_temperature) / increment)
+        stop = int((forecast["temperature_high"] - min_temperature) / increment)
+
+        for character in range(steps):
+            if character < start or character > stop:
+                chart += " "
+            else:
+                chart += "─"
+
+        return chart
+
+    def _format_hourly_report(self):
+        hours = []
+        icons = []
+        temperatures = []
+        hour_string = ""
+        icon_string = ""
+        temp_string = ""
+        for weather in self.hourly[:12]:
+            parsed_datetime = self._parse_weather_time(weather.time)
+            hour = str(parsed_datetime.hour)
+            if len(hour) == 1:
+                hour = "0" + hour
+            hour_string += " " + f"{hour:2}" + " "
+            icon_string += " " + f"{self._format_icon(weather.icon_key)}" + " "
+            temp_string += f"{self._format_temperature(weather.temperature)}"
+
+        temps_string = self._wrap_span(f'{"  ".join(temperatures)} \n')
+        return (
+            self._wrap_span(hour_string + "\n", "large", color="fg")
+            + self._wrap_span(icon_string + "\n", "large")
+            + self._wrap_span(temp_string + "\n", "large")
+        )
+
+    def _format_daily_report(self):
+        forecasts = self._build_daily_forecasts()
+        daily_string = "\n"
+        for day in forecasts:
+            formatted_day_string = self._wrap_span(
+                f'  {day["day_string"]:10} ', size="large", color="fg"
+            )
+            formatted_precipitation = self._wrap_span(
+                f'{str(day["precipitation"]) + "%":>3}', size="large", color="blue_alt"
+            )
+            formatted_temperature_low = (
+                f'{self._format_temperature(day["temperature_low"], size="large")} '
+            )
+            formatted_temperature_high = (
+                f'{self._format_temperature(day["temperature_high"], size="large")} '
+            )
+            formatted_delta_chart = self._wrap_span(
+                f'{day["delta_chart"]:20} ', size="large", color="aqua"
+            )
+            daily_string += (
+                formatted_day_string
+                + day["icon"]
+                + formatted_precipitation
+                + formatted_temperature_low
+                + formatted_delta_chart
+                + formatted_temperature_high
+                + "\n"
+            )
+        return daily_string
+
+    def _format_temperature(self, temperature, color="", width=">3", size=""):
+        if not color:
+            if temperature < 20:
+                color = "blue_alt"
+            elif 20 <= temperature < 32:
+                color = "blue"
+            elif 32 <= temperature < 50:
+                color = "aqua_alt"
+            elif 50 <= temperature < 65:
+                color = "aqua"
+            elif 65 <= temperature < 75:
+                color = "green_alt"
+            elif 75 <= temperature < 85:
+                color = "green"
+            elif 85 <= temperature < 95:
+                color = "yellow_alt"
+            elif 95 <= temperature < 100:
+                color = "yellow"
+            elif 100 <= temperature < 110:
+                color = "red_alt"
+            else:
+                color = "red"
+        return self._wrap_span(f"{round(temperature):{width}}°", color=color)
+
+    def _format_icon(self, icon_key, width="2", size=""):
+        color_translation = {
+            "day": "yellow",
+            "night": "blue",
+            "partly_cloudy": "gray",
+            "cloudy": "gray",
+            "hail": "aqua",
+            "wind_cloudy": "gray",
+            "rain": "blue",
+            "thunderstorm": "purple",
+            "sleet": "aqua",
+            "snow": "white",
+            "fog": "gray",
+            "smoke": "gray",
+            "haze": "gray",
+            "dust": "orange",
+            "sand": "orange",
+            "tornado": "red",
+            "wind": "gray",
+        }
+
+        split_name = icon_key.split("_")
+        if len(split_name) > 1:
+            color = color_translation.get("_".join(split_name[:-1]), None)
+        else:
+            color = color_translation.get(icon_key, None)
+
+        if color is None:
+            self._logger.debug(f"Failed to get color for {icon_key}")
+            color = "fg"
+        elif split_name[-1] == "night":
+            color += "_alt"
+
+        icon_value = self.config["icons"].get(icon_key, "")
+        return self._wrap_span(f"{icon_value:{width}}", size=size, color=color)
+
+    def _parse_weather_time(self, timestamp):
+        return datetime.fromtimestamp(
+            timestamp, tz=ZoneInfo(self.config["main"].get("timezone", "UTC"))
+        )
+
+    def _wrap_span(self, text, size="", color=""):
+        size_string = ""
+        color_string = ""
+        if size:
+            size_string = f'size="{size}"'
+        if color:
+            color_string = f'color="{self.config["theme"].get(color, color)}"'
+        return (
+            f"<span {color_string} "
+            f'font_family="{self.config["main"]["font"]}" '
+            f"{size_string}>{text}</span>"
+        )
+
+
+class WeatherAPI:
+    def __init__(self, config, name, url):
+        self.config = config
+        self.url = url
+        self.name = name
+
+        self._logger = logging.getLogger(self.__class__.__name__)
+
+    def get_status(self):
+        sleep_time = 5
+        retry = 3
+        should_retry = False
+        for i in range(retry):
+            try:
+                logger.debug(f"Making request to {self.name}")
+                with urllib.request.urlopen(self.url, timeout=10) as response:
+                    body = response.read()
+                break
+            except Exception as e:
+                if isinstance(e, HTTPError):
+                    if str(e.code).startswith("5"):
+                        should_retry = True
+                elif isinstance(e, URLError):
+                    if isinstance(e.reason, ConnectionRefusedError):
+                        should_retry = True
+                elif isinstance(e, TimeoutError):
+                    should_retry = True
+
+                if i == retry - 1:
+                    if should_retry:
+                        self._logger.error(
+                            f"Failed to reach {self.name} due to retryable error:\n"
+                            f"\t{str(e)}\nReached maximum retry attempts: {i}/{retry}."
+                        )
+                        raise e
+                if should_retry:
+                    self._logger.warn(
+                        f"Failed to reach {self.name} due to retryable error:\n"
+                        f"\t{str(e)}\nSleeping {sleep_time} seconds. Retry count: {i}/{retry}"
+                    )
+                    time.sleep(sleep_time)
+                    sleep_time += 10
+                    should_retry = False
+                else:
+                    raise e
+
+        self._logger.debug(f"Request to {self.name} successful.")
+        return self._parse_data(json.loads(body))
+
+    def _parse_data(self, data):
+        def check_keys(keys, data, nested_keys=[], expected_type=None):
+            for key in keys:
+                value = data.get(key, None)
+                if value is not None:
+                    if nested_keys:
+                        if isinstance(value, dict):
+                            if expected_type == dict:
+                                return value
+                            value = check_keys(nested_keys, value)
+                        elif isinstance(value, list):
+                            if expected_type == list:
+                                return value
+                            value = check_keys(nested_keys, value[0])
+                    return value
+            self._logger.debug(
+                f"Returning none for keys {keys} nested_keys {nested_keys} "
+                f"expected_type {expected_type} and data {data}"
+            )
+            return None
+
+        def create_weather(data):
+            cloud_cover = check_keys(cloud_cover_keys, data)
+            id = check_keys(id_keys, data, nested_keys=["id"])
+            icon_string = check_keys(
+                icon_keys,
+                data,
+                nested_keys=["icon"],
+            )
+            summary = check_keys(
+                summary_keys,
+                data,
+                nested_keys=["description"],
+            )
+            sunrise = check_keys(sunrise_keys, data)
+            sunset = check_keys(sunset_keys, data)
+            time = check_keys(time_keys, data)
+            temperature = check_keys(
+                temperature_keys,
+                data,
+                nested_keys=["day"],
+            )
+            temperature_high = check_keys(
+                temperature_high_keys,
+                data,
+                nested_keys=["max"],
+            )
+            temperature_low = check_keys(
+                temperature_low_keys,
+                data,
+                nested_keys=["min"],
+            )
+            precipitation_chance = check_keys(precipitation_chance_keys, data)
+            wind_speed = check_keys(wind_speed_keys, data)
+
+            formatted_weather: f"""
+                    cloud_cover: {cloud_cover}
+                    icon_string: {icon_string}
+                    summary: {summary}
+                    sunrise: {sunrise}
+                    sunset: {sunset}
+                    time: {time}
+                    temperature: {temperature}
+                    temperature_high: {temperature_high}
+                    temperature_low: {temperature_low}
+                    precipitation_chance: {precipitation_chance}
+                    wind_speed: {wind_speed}
+                    """
+
+            self._logger.debug("Creating weather:\n\t{formatted_weather}")
+            return Weather(
+                config=self.config,
+                cloud_cover=cloud_cover,
+                icon_string=icon_string,
+                id=id,
+                summary=summary,
+                sunrise=sunrise,
+                sunset=sunset,
+                time=time,
+                temperature=temperature,
+                temperature_high=temperature_high,
+                temperature_low=temperature_low,
+                precipitation_chance=precipitation_chance,
+                wind_speed=wind_speed,
+            )
+
+        current_keys = ["current", "currently"]
+        hourly_keys = ["hourly"]
+        daily_keys = ["daily"]
+
+        cloud_cover_keys = ["clouds", "cloudCover"]
+        id_keys = ["weather"]
+        icon_keys = ["icon", "weather"]
+        summary_keys = ["summary", "weather"]
+        sunrise_keys = ["sunrise", "sunriseTime"]
+        sunset_keys = ["sunset", "sunsetTime"]
+        time_keys = ["time", "dt"]
+        temperature_keys = ["temperature", "temp"]
+        temperature_high_keys = ["temperatureHigh", "temp"]
+        temperature_low_keys = ["temperatureLow", "temp"]
+        precipitation_chance_keys = ["pop", "precipProbability"]
+        wind_speed_keys = ["windSpeed", "wind_speed"]
+
+        current = check_keys(current_keys, data)
+        hourly = check_keys(hourly_keys, data, nested_keys=["data"], expected_type=list)
+        daily = check_keys(daily_keys, data, nested_keys=["data"], expected_type=list)
+
+        for subset in [("current", current), ("hourly", hourly), ("daily", daily)]:
+            self._logger.debug(f"{subset[0]} subset gathered with value: {subset[1]}")
+
+        return WeatherReport(
+            self.config,
+            create_weather(current),
+            [create_weather(weather) for weather in hourly],
+            [create_weather(weather) for weather in daily],
+        )
+
+
+def load_config(path):
+    with open(path, "rb") as f:
+        return tomllib.load(f)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Fitzroy is a weather module for Waybar."
+    )
+    parser.add_argument(
+        "--lat", "--latitude", help="Latitude coordinates to check weather for."
+    )
+    parser.add_argument("--lon", "--longitude", help="Longitude to check weather for.")
+    parser.add_argument(
+        "-c",
+        "--config",
+        default=f"{Path.home()}/.config/fitzroy/config.toml",
+        help="Path to configuration file.",
+    )
+    args = parser.parse_args()
+
+    config = load_config(args.config)
+
+    logging.basicConfig(
+        level=logging.getLevelName(config["main"].get("log_level", "INFO").upper()),
+        format="%(asctime)s %(name)s %(levelname)-8s %(message)s",
+    )
+
+    logger = logging.getLogger(__name__)
+    logger.setLevel(config["main"].get("log_level", "INFO").upper())
+
+    try:
+        lat = config["main"]["lat"]
+    except KeyError as e:
+        logger.error(
+            "Required configuration key 'lat' not found in configuration file."
+        )
+    try:
+        lon = config["main"]["lon"]
+    except KeyError as e:
+        logger.error(
+            "Required configuration key 'lon' not found in configuration file."
+        )
+
+    if args.lat:
+        logger.debug(f"Overriding {lat} with CLI flag value: {args.lat}")
+        lat = args.lat
+    if args.lon:
+        lon = args.lon
+        logger.debug(f"Overriding {lat} with CLI flag value: {args.lat}")
+
+    enabled_apis = []
+    for api in config["api"]["enabled"]:
+        api_key = config["api"][api]["api_key"]
+        url = config["api"][api]["url"]
+        url = url.replace("{lat}", lat)
+        url = url.replace("{lon}", lon)
+
+        logger.info(f"Using API URL {url}.")
+
+        url = url.replace("{api_key}", api_key)
+
+        enabled_apis.append(WeatherAPI(config, api, url))
+
+    reports = None
+    for api in enabled_apis:
+        try:
+            reports = api.get_status()
+            logger.info(f"Succeeded in getting weather data from {api.name}.")
+            break
+        except Exception as e:
+            logger.error(
+                f"Creating report from API with URL {api.name} failed with: {str(e)}"
+            )
+            continue
+    if reports is None:
+        logger.error(
+            f"Failed to get weather status from all APIs in {[api.name for api in enabled_apis]}."
+        )
+        sys.exit(1)
+    else:
+        print(reports.build_report())

@@ -1,0 +1,8 @@
+{
+    "modules-center": ["custom/fitzroy"],
+    "custom/fitzroy": {
+        "exec": "~/bin/fitzroy",
+        "interval": 600,
+        "return-type": "json",
+    }
+}
