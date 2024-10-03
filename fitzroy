@@ -310,10 +310,10 @@ class WeatherReport:
         delta = max_temperature - min_temperature
         steps = 20
         increment = delta / steps
-        low_temperature_position = int(
+        low_temperature_position = round(
             (forecast["temperature_low"] - min_temperature) / increment
         )
-        high_temperature_position = int(
+        high_temperature_position = round(
             (forecast["temperature_high"] - min_temperature) / increment
         )
 
