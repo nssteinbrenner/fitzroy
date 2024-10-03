@@ -467,7 +467,7 @@ class WeatherAPI:
         should_retry = False
         for i in range(retry):
             try:
-                logger.debug(f"Making request to {self.name}")
+                self._logger.debug(f"Making request to {self.name}")
                 with urllib.request.urlopen(self.url, timeout=10) as response:
                     body = response.read()
                 break
