@@ -49,7 +49,7 @@ class Weather:
             round(temperature_low) if temperature_low is not None else None
         )
         self.precipitation_chance = (
-            round(precipitation_chance) if precipitation_chance is not None else None
+            round(precipitation_chance * 100) if precipitation_chance is not None else None
         )
         if wind_speed is not None:
             self.wind_speed = (
