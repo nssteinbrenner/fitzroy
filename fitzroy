@@ -337,8 +337,8 @@ class WeatherReport:
             hour = str(parsed_datetime.hour)
             if len(hour) == 1:
                 hour = "0" + hour
-            hour_string += " " + f"{hour:2}" + " "
-            icon_string += " " + f"{self._format_icon(weather.icon_key)}" + " "
+            hour_string += f"{hour:^4}"
+            icon_string += f"{self._format_icon(weather.icon_key, width='^4')}"
             temp_string += f"{self._format_temperature(weather.temperature)}"
 
         temps_string = self._wrap_span(f'{"  ".join(temperatures)} \n')
